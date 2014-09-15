@@ -1,132 +1,180 @@
 #include <asm/byteorder.h>
 #include <ctype.h>
 #include <netinet/in.h>
-#include <sys/socket.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <sys/unistd.h>
 
 int main(int argc, char **argv) {
-	// socket structure
-	struct sockaddr_in socket_struct;
-	int struct_size_socket = sizeof socket_struct;
-	socket_struct.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-	socket_struct.sin_port = htons(8008);
+	int ret = 0;
+	if (argc <= 1)
+		printf("Usage:\n\t%0$s -c <url>\n\t%0%s <file>\n", argv[0]);
+	else {
+		if (!strncmp("-c", argv[1], 2))
+			ret = 1; //not implemented yet
+		else { // server takes a file as a parameter
+			long sessions[1000]; // bits sent
+			for (int i = 0; i < 1000; i++)
+				sessions[i] = 0;
+			int buffer_to_socket[10];
+			for (int i = 0; i < 10; i++)
+				buffer_to_socket[i] = 0;
+			char buffers_read[10][8192]; // read buffers
 
-	// creating server socket
-	int socket_server = socket(socket_struct.sin_family = AF_INET, SOCK_STREAM,
-	IPPROTO_TCP);
-	// binding
-	bind(socket_server, (void*) &socket_struct, struct_size_socket);
+			fd_set sockets_set; // sockets ready to read
+			fd_set sockets_available;
+			int socket_max;
+			FD_ZERO(&sockets_set);
+			FD_ZERO(&sockets_available);
 
-	// listen 10 connections
-	listen(socket_server, 10);
+			// socket structure
+			struct sockaddr_in socket_struct;
+			socket_struct.sin_addr.s_addr = 0; // INADDR_ANY is 0 anyway
+			socket_struct.sin_port = htons(8008);
 
-	int socket_client;
-	for (;; close(socket_client)) {
-		socket_client = accept(socket_server, 0, 0);
+			// creating server socket
+			int socket_server = socket(socket_struct.sin_family = 2, 1, 0); // AF_INET = 2, SOCK_STREAM = 1, 0 works for protocol
+			printf("0: socket_server=%d\n", socket_server);
+			// binding
+			bind(socket_server, &socket_struct, sizeof socket_struct);
 
-		if (fork())
-			continue;
+			// listen 10 connections
+			listen(socket_server, 10);
 
-		if (socket_client > 0) {
-			char buffer_read[8192];
-			char session_string[8192];
-			char* html = "<!DOCTYPE html>\n<html></html>";
-			size_t html_length = strlen(html);
-
+			FD_SET(socket_max = socket_server, &sockets_available);
 			for (;;) {
-				*session_string = 0;
+				if (select(socket_max + 1, &(sockets_set = sockets_available),
+						0, 0, 0) < 0) // copy available to read from
+					goto the_end;
 
-				int response_status = 200;
-				for (int request_line = 0;; request_line++) {
-					int i = 0;
-					int parameter = 1;
-					while (i < 8192) {
-						if (read(socket_client, buffer_read + i, 1) <= 0)
-							return 0;
-						if (buffer_read[i] == '\n')
-							break;
-						if (request_line && parameter)
-							if (buffer_read[i] == ':')
-								parameter = 0;
-							else
-								buffer_read[i] = toupper(buffer_read[i]);
-						i++;
-					}
-
-					if (i < 8192) {
-						if (buffer_read[i - 1] != '\r')
-							i++;
-
-						if (!request_line && *buffer_read != 'G')
-							response_status = 501;
-					} else
-						response_status = 400;
-
-					buffer_read[i - 1] = 0;
-
-					size_t string_length = strlen(buffer_read);
-
-					if (response_status != 200 || !string_length)
-						break;
-
-					char* substring = "COOKIE:";
-					if (!strncmp(buffer_read, substring, strlen(substring))) {
-						char* substring_with;
-						substring = "session=";
-						if (substring_with = strstr(buffer_read, substring))
-							sscanf(substring_with + strlen(substring),
-									"%s[^;\r\n]", session_string);
-					}
-				}
-
-				long session_long = 0;
-				int wait_length = 0;
-				if (strlen(session_string)) {
-					session_long = atol(session_string);
-
-					if (session_long >= 0) {
-						long char_number = session_long / 8;
-						int bit_number = session_long % 8;
-
-						if (html_length < char_number)
-							session_long = -1;
-						else {
-							session_long++;
-							wait_length = html[char_number] & 1 << bit_number;
+				for (int socket_num = 0; socket_num <= socket_max; socket_num++)
+					if (FD_ISSET(socket_num, &sockets_set))
+						if (socket_num == socket_server) { // server - accepting new connection
+							int socket_client = accept(socket_server, 0, 0); // not reporting anything back 0-s are ok
+							FD_SET(socket_client, &sockets_available);
+							if (socket_client > socket_max)
+								socket_max = socket_client;
+						for(int buffer_num = 0; buffer_num < 10; buffer_num++) if(buffer_to_socket[buffer_num] == 0) {
+							buffer_to_socket[buffer_num] = socket_num;
+							buffers_read[buffer_num] = 0;
 						}
+					} else { // client reading data
+						for(int buffer_num = 0; buffer_num < 10; buffer_num++) if(buffer_to_socket[buffer_num] == socket_num) {
+
 					}
-				}
+						char session_string[8192];
+						char* html =
+								"<!DOCTYPE html>\n<html><body><center>Steganography<br><big><big><big>is the art</big></big></big><br>of concealing a message<br>within.<br><p style='position:absolute;bottom:0;left:0;width:100%;text-align:center;'><small><small><small><small><small><small>another message</small></small></small></small></small></small></p><center></body></html>";
 
-				if (wait_length)
-					sleep(1);
+						*session_string = 0;
 
-				char response[8192];
-				char content[8192];
-				if (response_status == 200)
-					snprintf(content, 8192,
-							"Content-type: text/html\r\nSet-Cookie: session=%ld\r\n",
-							session_long);
+						int response_status = 200;
+						for (int request_line = 0;; request_line++) {
+							int i = 0;
+							int parameter = 1;
+							while (i < 8192) {
+								if (read(socket_client, buffer_read + i, 1)
+										<= 0)
+									goto the_end;
+								if (buffer_read[i] == '\n')
+									break;
+								if (request_line && parameter)
+									if (buffer_read[i] == ':')
+										parameter = 0;
+									else
+										buffer_read[i] = toupper(
+												buffer_read[i]);
+								i++;
+							}
 
-				long response_length = snprintf(response, 8192,
-						"HTTP/1.0 %s\r\n%sContent-Length: %ld\r\n\r\n",
-						response_status == 200 ? "200 OK" :
-						response_status == 400 ?
-								"400 Bad Request" : "501 Unsupported",
-						response_status == 200 ? content : "",
-						response_status == 200 ? html_length : 0);
+							if (i < 8192) {
+								if (buffer_read[i - 1] != '\r')
+									i++;
 
-				write(socket_client, response, response_length);
+								if (!request_line && *buffer_read != 'G')
+									response_status = 501;
+							} else
+								response_status = 400;
 
-				if (response_status == 200)
-					write(socket_client, html, html_length);
-			}
+							buffer_read[i - 1] = 0;
+
+							size_t string_length = strlen(buffer_read);
+
+							if (response_status != 200 || !string_length)
+								break;
+
+							char* substring = "COOKIE:";
+							if (!strncmp(buffer_read, substring,
+									strlen(substring))) {
+								char* substring_with;
+								substring = "session=";
+								if (substring_with = strstr(buffer_read,
+										substring))
+									sscanf(substring_with + strlen(substring),
+											"%s[^;\r\n]", session_string);
+							}
+						}
+
+						long session_long = 0;
+						int wait_length = 0;
+						if (strlen(session_string)) {
+							session_long = atol(session_string);
+
+							if (session_long >= 0) {
+								long char_number = session_long / 8;
+								int bit_number = session_long % 8;
+
+								if (html_length < char_number)
+									session_long = -1;
+								else {
+									session_long++;
+									wait_length = html[char_number]
+											& 1 << bit_number;
+								}
+							}
+						}
+
+						if (wait_length)
+							sleep(1);
+
+						char response[8192];
+						char content[8192];
+						if (response_status == 200)
+							snprintf(content, 8192,
+									"Content-type: text/html\r\nSet-Cookie: session=%ld\r\n",
+									session_long);
+
+						long response_length = snprintf(response, 8192,
+								"HTTP/1.0 %s\r\n%sContent-Length: %ld\r\n\r\n",
+								response_status == 200 ? "200 OK" :
+								response_status == 400 ?
+										"400 Bad Request" : "501 Unsupported",
+								response_status == 200 ? content : "",
+								response_status == 200 ? html_length : 0);
+
+						for (long written = 0; written >= response_length;) {
+							ssize_t written_once = write(socket_client,
+									response, response_length);
+							if (written_once < 0) {
+								ret = 1;
+								goto the_end;
+							}
+
+							written += written_once;
+						}
+
+						if (response_status == 200)
+							write(socket_client, html, html_length);
+					}
+
+			the_end: close(socket_client);
+			close(socket_server);
 		}
 	}
 
-	return 0;
+	return ret;
 }
