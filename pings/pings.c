@@ -11,68 +11,90 @@
 
 int main(int argc, char **argv) {
 	int ret = 0;
-	if (argc <= 1)
-		printf("Usage:\n\t%0$s -c <url>\n\t%0%s <file>\n", argv[0]);
-	else {
-		if (!strncmp("-c", argv[1], 2))
-			ret = 1; //not implemented yet
-		else { // server takes a file as a parameter
-			long sessions[1000]; // bits sent
-			for (int i = 0; i < 1000; i++)
-				sessions[i] = 0;
-			int buffer_to_socket[10];
-			for (int i = 0; i < 10; i++)
-				buffer_to_socket[i] = 0;
-			char buffers_read[10][8192]; // read buffers
+	if (argc <= 1) { // need to read stdin
+		long sessions[1000]; // bits sent
+		for (int i = 0; i < 1000; i++)
+			sessions[i] = 0;
+		int buffer_to_socket[10];
+		for (int i = 0; i < 10; i++)
+			buffer_to_socket[i] = 0;
+		char buffers_read[10][8192]; // read buffers
 
-			fd_set sockets_set; // sockets ready to read
-			fd_set sockets_available;
-			int socket_max;
-			FD_ZERO(&sockets_set);
-			FD_ZERO(&sockets_available);
+		fd_set sockets_set; // sockets ready to read
+		fd_set sockets_available;
+		int socket_max;
+		FD_ZERO(&sockets_set);
+		FD_ZERO(&sockets_available);
 
-			// socket structure
-			struct sockaddr_in socket_struct;
-			socket_struct.sin_addr.s_addr = 0; // INADDR_ANY is 0 anyway
-			socket_struct.sin_port = htons(8008);
+		// socket structure
+		struct sockaddr_in socket_struct;
+		socket_struct.sin_addr.s_addr = INADDR_ANY; // INADDR_ANY is 0 anyway
+		socket_struct.sin_port = htons(8008);
 
-			// creating server socket
-			int socket_server = socket(socket_struct.sin_family = 2, 1, 0); // AF_INET = 2, SOCK_STREAM = 1, 0 works for protocol
-			printf("0: socket_server=%d\n", socket_server);
-			// binding
-			bind(socket_server, &socket_struct, sizeof socket_struct);
+		// creating server socket
+		int socket_server = socket(socket_struct.sin_family = AF_INET,
+		SOCK_STREAM, 0); // 0 works for protocol
+		printf("0: socket_server=%d\n", socket_server);
+		// binding
+		bind(socket_server, &socket_struct, sizeof socket_struct);
 
-			// listen 10 connections
-			listen(socket_server, 10);
+		// listen 10 connections
+		listen(socket_server, 10);
 
-			FD_SET(socket_max = socket_server, &sockets_available);
-			for (;;) {
-				if (select(socket_max + 1, &(sockets_set = sockets_available),
-						0, 0, 0) < 0) // copy available to read from
-					goto the_end;
+		FD_SET(socket_max = socket_server, &sockets_available);
+		for (;;) {
+			int selected_num = select(socket_max + 1, &(sockets_set =
+					sockets_available), 0, 0, 0); // copy available to read from
+			if (selected_num < 0)
+				goto the_end;
 
-				for (int socket_num = 0; socket_num <= socket_max; socket_num++)
-					if (FD_ISSET(socket_num, &sockets_set))
-						if (socket_num == socket_server) { // server - accepting new connection
-							int socket_client = accept(socket_server, 0, 0); // not reporting anything back 0-s are ok
-							FD_SET(socket_client, &sockets_available);
-							if (socket_client > socket_max)
-								socket_max = socket_client;
-						for(int buffer_num = 0; buffer_num < 10; buffer_num++) if(buffer_to_socket[buffer_num] == 0) {
-							buffer_to_socket[buffer_num] = socket_num;
-							buffers_read[buffer_num] = 0;
+			for (int socket_num = 0;
+					selected_num > 0 && socket_num <= socket_max; socket_num++)
+				if (FD_ISSET(socket_num, &sockets_set)) {
+					socket_num--;
+					if (socket_num == socket_server) { // server - accepting new connection
+						int socket_client = accept(socket_server, 0, 0); // not reporting anything back 0-s are ok
+						FD_SET(socket_client, &sockets_available);
+						if (socket_client > socket_max)
+							socket_max = socket_client;
+						for (int buffer_num = 0; buffer_num < 10; buffer_num++)
+							if (buffer_to_socket[buffer_num] == 0) {
+								buffer_to_socket[buffer_num] = socket_num;
+								buffers_read[buffer_num] = 0;
+								break;
+							}
+					} else {
+						int buffer_num = 0;
+						for (; buffer_num < 10; buffer_num++)
+							if (buffer_to_socket[buffer_num] == socket_num)
+								break;
+						int read_bytes = read(socket_num,
+								buffers_read[buffer_num], 8192);
+						if (read_bytes <= 0) {
+							close(socket_num);
+							FD_CLR(socket_num, &sockets_available);
+							buffer_to_socket[buffer_num] = 0;
+							if (socket_num == socket_max)
+								while (--socket_max)
+									if (FD_ISSET(socket_max,
+											&sockets_available))
+										break;
+						} else {
+							int response_status = 200;
+
 						}
-					} else { // client reading data
-						for(int buffer_num = 0; buffer_num < 10; buffer_num++) if(buffer_to_socket[buffer_num] == socket_num) {
-
 					}
+					{ // client reading data
+						for (int buffer_num = 0; buffer_num < 10; buffer_num++)
+							if (buffer_to_socket[buffer_num] == socket_num) {
+
+							}
 						char session_string[8192];
 						char* html =
 								"<!DOCTYPE html>\n<html><body><center>Steganography<br><big><big><big>is the art</big></big></big><br>of concealing a message<br>within.<br><p style='position:absolute;bottom:0;left:0;width:100%;text-align:center;'><small><small><small><small><small><small>another message</small></small></small></small></small></small></p><center></body></html>";
 
 						*session_string = 0;
 
-						int response_status = 200;
 						for (int request_line = 0;; request_line++) {
 							int i = 0;
 							int parameter = 1;
@@ -170,11 +192,13 @@ int main(int argc, char **argv) {
 						if (response_status == 200)
 							write(socket_client, html, html_length);
 					}
+				}
 
 			the_end: close(socket_client);
 			close(socket_server);
 		}
-	}
+	} else
+		; // client not implemented yet
 
 	return ret;
 }
