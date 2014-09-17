@@ -15,10 +15,6 @@ int main(int argc, char **argv) {
 		long sessions[1000]; // bits sent
 		for (int i = 0; i < 1000; i++)
 			sessions[i] = 0;
-		int buffer_to_socket[10];
-		for (int i = 0; i < 10; i++)
-			buffer_to_socket[i] = 0;
-		char buffers_read[10][8192]; // read buffers
 
 		fd_set sockets_set; // sockets ready to read
 		fd_set sockets_available;
@@ -57,53 +53,54 @@ int main(int argc, char **argv) {
 						FD_SET(socket_client, &sockets_available);
 						if (socket_client > socket_max)
 							socket_max = socket_client;
-						for (int buffer_num = 0; buffer_num < 10; buffer_num++)
-							if (buffer_to_socket[buffer_num] == 0) {
-								buffer_to_socket[buffer_num] = socket_num;
-								buffers_read[buffer_num] = 0;
-								break;
-							}
 					} else {
-						int buffer_num = 0;
-						for (; buffer_num < 10; buffer_num++)
-							if (buffer_to_socket[buffer_num] == socket_num)
-								break;
+						char buffer_read[8192]; // read buffer
+
 						int read_bytes = read(socket_num,
-								buffers_read[buffer_num], 8192);
+								buffer_read, 8192);
 						if (read_bytes <= 0) {
 							close(socket_num);
 							FD_CLR(socket_num, &sockets_available);
-							buffer_to_socket[buffer_num] = 0;
 							if (socket_num == socket_max)
 								while (--socket_max)
 									if (FD_ISSET(socket_max,
 											&sockets_available))
 										break;
 						} else {
-							int response_status = 200;
+							buffer_read[read_bytes < 8192 ? read_bytes : 8191] = 0;
 
+							if (*buffer_read == 'G')
+							{
+								char *read_pointer = strstr(buffer_read, "\n");
+								if(read_pointer!=0)
+								{
+									char *cookie_pointer = 0;
+									for(char *request_string_start = ++read_pointer; *read_pointer; read_pointer++) if(*read_pointer == '\n')
+									{
+										if(cookie_pointer = strstr(request_string_start, "COOKIE:")) break;
+										request_string_start = read_pointer+1;
+									}
+									else *read_pointer = toupper(*read_pointer);
+
+									if(cookie_pointer)
+									{
+
+									}
+								}
+							}
 						}
 					}
 					{ // client reading data
-						for (int buffer_num = 0; buffer_num < 10; buffer_num++)
-							if (buffer_to_socket[buffer_num] == socket_num) {
-
-							}
 						char session_string[8192];
 						char* html =
 								"<!DOCTYPE html>\n<html><body><center>Steganography<br><big><big><big>is the art</big></big></big><br>of concealing a message<br>within.<br><p style='position:absolute;bottom:0;left:0;width:100%;text-align:center;'><small><small><small><small><small><small>another message</small></small></small></small></small></small></p><center></body></html>";
 
 						*session_string = 0;
 
-						for (int request_line = 0;; request_line++) {
-							int i = 0;
-							int parameter = 1;
 							while (i < 8192) {
 								if (read(socket_client, buffer_read + i, 1)
 										<= 0)
 									goto the_end;
-								if (buffer_read[i] == '\n')
-									break;
 								if (request_line && parameter)
 									if (buffer_read[i] == ':')
 										parameter = 0;
