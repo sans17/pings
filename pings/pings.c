@@ -67,17 +67,24 @@ int main(int argc, char **argv) {
 											&sockets_available))
 										break;
 						} else {
-							buffer_read[read_bytes < 8192 ? read_bytes : 8191] = 0;
+							buffer_read[8191] = 0;
 
 							if (*buffer_read == 'G')
 							{
 								char *read_pointer = strstr(buffer_read, "\n");
 								if(read_pointer!=0)
 								{
-									char *cookie_pointer = 0;
 									for(char *request_string_start = ++read_pointer; *read_pointer; read_pointer++) if(*read_pointer == '\n')
 									{
-										if(cookie_pointer = strstr(request_string_start, "COOKIE:")) break;
+										*read_pointer = 0;
+										if(*(read_pointer-1) == '\r') *(read_pointer-1) = 0;
+										if(!strlen(request_string_start)) break;
+
+										char* substring_cookie = "COOKIE:";
+										if(!strncmp(request_string_start, substring_cookie,
+												strlen(substring_cookie))) {
+											break;
+										}
 										request_string_start = read_pointer+1;
 									}
 									else *read_pointer = toupper(*read_pointer);
