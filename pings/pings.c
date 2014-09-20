@@ -11,7 +11,17 @@
 
 int main(int argc, char **argv) {
 	int ret = 0;
-	if (argc <= 1) { // need to read stdin
+	if (argc <= 1) {
+		// read stdin
+		int input[8192];
+		int input_length = 0;
+		for (; input_length < 8192; input_length++) {
+			int input_int = fgetc(stdin);
+			if (input_int == EOF)
+				break;
+			input_int[input_length] = input_int;
+		}
+
 		long sessions[1000]; // bits sent
 		for (int i = 0; i < 1000; i++)
 			sessions[i] = 0;
@@ -56,8 +66,7 @@ int main(int argc, char **argv) {
 					} else {
 						char buffer_read[8192]; // read buffer
 
-						int read_bytes = read(socket_num,
-								buffer_read, 8192);
+						int read_bytes = read(socket_num, buffer_read, 8192);
 						if (read_bytes <= 0) {
 							close(socket_num);
 							FD_CLR(socket_num, &sockets_available);
@@ -68,139 +77,107 @@ int main(int argc, char **argv) {
 										break;
 						} else {
 							buffer_read[8191] = 0;
+							if (*buffer_read == 'G') {
+								char session_string[8192];
+								int session_int = 0;
+								session_string[0] = 0;
+								int wait_length = 0;
 
-							if (*buffer_read == 'G')
-							{
 								char *read_pointer = strstr(buffer_read, "\n");
-								if(read_pointer!=0)
-								{
-									for(char *request_string_start = ++read_pointer; *read_pointer; read_pointer++) if(*read_pointer == '\n')
-									{
-										*read_pointer = 0;
-										if(*(read_pointer-1) == '\r') *(read_pointer-1) = 0;
-										if(!strlen(request_string_start)) break;
+								if (read_pointer) {
+									for (char *request_string_start =
+											++read_pointer; *read_pointer;
+											read_pointer++)
+										if (*read_pointer == '\n') {
+											*read_pointer = 0;
+											if (*(read_pointer - 1) == '\r')
+												*(read_pointer - 1) = 0;
+											if (!strlen(request_string_start))
+												break;
 
-										char* substring_cookie = "COOKIE:";
-										if(!strncmp(request_string_start, substring_cookie,
-												strlen(substring_cookie))) {
+											char *substring_cookie = "COOKIE:";
+											char *substring_session = "SESSION=";
+											char *substring_with;
+											if (!strncmp(request_string_start,
+													substring_cookie,
+													strlen(substring_cookie))
+													&& (substring_with =
+															strstr(
+																	request_string_start,
+																	substring_session))) {
+												sscanf(
+														substring_with
+																+ strlen(
+																		substring_session),
+														"%s[^;\r\n]",
+														session_string);
+												break;
+											}
+											request_string_start = read_pointer
+													+ 1;
+										} else
+											*read_pointer = toupper(
+													*read_pointer);
+
+									if (strlen(session_string))
+										if (session_int = atoi(
+												session_string)) {
+											long char_number =
+													sessions[session_int - 1]
+															/ 8;
+											int bit_number =
+													sessions[session_int - 1]
+															% 8;
+
+											if (char_number > input_length) {
+												sessions[session_int - 1] = 0;
+												session_int = 0;
+											} else {
+												sessions[session_int - 1]++;
+												wait_length = input[char_number]
+														& 1 << bit_number;
+											}
+										}
+								} else
+									for (int new_session_int = 0;
+											new_session_int < 1000;
+											new_session_int++)
+										if (!sessions[new_session_int]) {
+											session_int = new_session_int + 1;
 											break;
 										}
-										request_string_start = read_pointer+1;
-									}
-									else *read_pointer = toupper(*read_pointer);
 
-									if(cookie_pointer)
-									{
+								if (wait_length) {
+									struct timeval wait_time;
+									wait_time.tv_sec = 0;
+									wait_time.tv_usec = 250000;
 
-									}
+									select(0, 0, 0, 0, &wait_length);
 								}
+
+								char response[8192];
+								char content[8192];
+								char* html = "<!DOCTYPE html>\n<html></html>";
+								long html_length = strlen(html);
+								if (session_int)
+									snprintf(content, 8192,
+											"Content-type: text/html\r\nSet-Cookie: session=%d\r\n",
+											session_int);
+
+								long response_length =
+										snprintf(response, 8192,
+												"HTTP/1.0 200 OK\r\n%sContent-Length: %ld\r\n\r\n",
+												session_int ? content : "",
+												strlen(html));
+								write(socket_num, response, response_length);
+								write(socket_num, html, html_length);
 							}
 						}
-					}
-					{ // client reading data
-						char session_string[8192];
-						char* html =
-								"<!DOCTYPE html>\n<html><body><center>Steganography<br><big><big><big>is the art</big></big></big><br>of concealing a message<br>within.<br><p style='position:absolute;bottom:0;left:0;width:100%;text-align:center;'><small><small><small><small><small><small>another message</small></small></small></small></small></small></p><center></body></html>";
-
-						*session_string = 0;
-
-							while (i < 8192) {
-								if (read(socket_client, buffer_read + i, 1)
-										<= 0)
-									goto the_end;
-								if (request_line && parameter)
-									if (buffer_read[i] == ':')
-										parameter = 0;
-									else
-										buffer_read[i] = toupper(
-												buffer_read[i]);
-								i++;
-							}
-
-							if (i < 8192) {
-								if (buffer_read[i - 1] != '\r')
-									i++;
-
-								if (!request_line && *buffer_read != 'G')
-									response_status = 501;
-							} else
-								response_status = 400;
-
-							buffer_read[i - 1] = 0;
-
-							size_t string_length = strlen(buffer_read);
-
-							if (response_status != 200 || !string_length)
-								break;
-
-							char* substring = "COOKIE:";
-							if (!strncmp(buffer_read, substring,
-									strlen(substring))) {
-								char* substring_with;
-								substring = "session=";
-								if (substring_with = strstr(buffer_read,
-										substring))
-									sscanf(substring_with + strlen(substring),
-											"%s[^;\r\n]", session_string);
-							}
-						}
-
-						long session_long = 0;
-						int wait_length = 0;
-						if (strlen(session_string)) {
-							session_long = atol(session_string);
-
-							if (session_long >= 0) {
-								long char_number = session_long / 8;
-								int bit_number = session_long % 8;
-
-								if (html_length < char_number)
-									session_long = -1;
-								else {
-									session_long++;
-									wait_length = html[char_number]
-											& 1 << bit_number;
-								}
-							}
-						}
-
-						if (wait_length)
-							sleep(1);
-
-						char response[8192];
-						char content[8192];
-						if (response_status == 200)
-							snprintf(content, 8192,
-									"Content-type: text/html\r\nSet-Cookie: session=%ld\r\n",
-									session_long);
-
-						long response_length = snprintf(response, 8192,
-								"HTTP/1.0 %s\r\n%sContent-Length: %ld\r\n\r\n",
-								response_status == 200 ? "200 OK" :
-								response_status == 400 ?
-										"400 Bad Request" : "501 Unsupported",
-								response_status == 200 ? content : "",
-								response_status == 200 ? html_length : 0);
-
-						for (long written = 0; written >= response_length;) {
-							ssize_t written_once = write(socket_client,
-									response, response_length);
-							if (written_once < 0) {
-								ret = 1;
-								goto the_end;
-							}
-
-							written += written_once;
-						}
-
-						if (response_status == 200)
-							write(socket_client, html, html_length);
 					}
 				}
-
-			the_end: close(socket_client);
-			close(socket_server);
 		}
+
+		the_end: close(socket_server);
 	} else
 		; // client not implemented yet
 
