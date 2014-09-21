@@ -1,7 +1,4 @@
-#include <asm/byteorder.h>
 #include <ctype.h>
-#include <cygwin/in.h>
-#include <cygwin/socket.h>
 #include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -149,7 +146,7 @@ int main(int argc, char **argv) {
 										long char_number = sessions[session_int
 												- 1] / 8;
 
-										if (char_number > input_length) {
+										if (char_number >= input_length) {
 											sessions[session_int - 1] = 0;
 											session_int = 0;
 										} else {
@@ -187,7 +184,6 @@ int main(int argc, char **argv) {
 
 									char* html =
 											"<!DOCTYPE html>\n<html><body>A</body></html>";
-									long html_length = strlen(html);
 									long response_length =
 											snprintf(response, 8192,
 													"HTTP/1.0 200 OK\r\nContent-type: text/html\r\nSet-Cookie: session=%d\r\nContent-Length: %ld\r\n\r\n%s",
@@ -267,7 +263,7 @@ int main(int argc, char **argv) {
 //							printf("7: read_int=%d, bit_number=%d\n", read_int,
 //									bit_number);
 							if (!bit_number) {
-								printf("8: read_int=%d\n", read_int);
+//								printf("8: read_int=%d\n", read_int);
 								putchar(read_int);
 								read_int = 0;
 							}
