@@ -36,7 +36,6 @@ void parse_session(char* communication, char* substring_cookie) {
 					== (*(read_pointer - 1) == '\r' ? 2 : 1))
 				break;
 			*read_pointer = 0;
-//			printf("-4: request_string={%s}\n", request_string);
 
 			char *substring_session = "SESSION=";
 			char *substring_with;
@@ -53,7 +52,6 @@ void parse_session(char* communication, char* substring_cookie) {
 			*read_pointer = toupper(*read_pointer);
 	}
 
-//	printf("-3: session_string={%s}\n", session_string);
 	if (strlen(session_string))
 		session_int = atoi(session_string);
 }
@@ -63,8 +61,6 @@ int bit_number = 0;
 int main(int argc, char **argv) {
 	int ret = 0;
 
-//	printf("-2: argc=%d\n", argc);
-
 	struct sockaddr_in socket_struct;
 	socket_struct.sin_family = AF_INET;
 	int socket_main;
@@ -73,7 +69,64 @@ int main(int argc, char **argv) {
 	char response[8192];
 	struct timeval time_value;
 
-	if (argc <= 1) {
+	if (argc > 1) { // client
+		char address[8192];
+		int address_length_1;
+		sscanf(argv[1], "http://%8191[^/]%n", address, &address_length_1);
+
+		snprintf(request, 8192, "GET %s HTTP/1.0\r\nHost: %s\r\n",
+				*(argv[1] + address_length_1) ?
+						argv[1] + address_length_1 : "/", address);
+
+		int address_length;
+		int port = 80;
+		sscanf(address, "%*[^:]%n:%d", &address_length, &port);
+		address[address_length] = 0;
+
+		struct hostent *host = gethostbyname(address);
+		memcpy(&socket_struct.sin_addr.s_addr, host->h_addr, host->h_length);
+		socket_struct.sin_port = htons(port);
+
+		if (!connect(socket_main = socket(AF_INET, SOCK_STREAM, 0),
+				&socket_struct, sizeof socket_struct))
+			for (int read_int = 0;;) {
+				int old_session_int = session_int;
+				//				printf("6: old_session_int=%d\n", old_session_int);
+
+				char content[8192];
+				int content_length = snprintf(content, 8192,
+						"%sCookie: session=%s\r\n\r\n", request,
+						session_int ? session_string : "");
+				write(socket_main, content, content_length);
+
+				gettimeofday(&time_value, 0);
+
+				read(socket_main, response, 8192);
+				if (*response == 'H') {
+					struct timeval time_end;
+					gettimeofday(&time_end, 0);
+
+					long diff = (time_end.tv_sec - time_value.tv_sec) * 1000000
+							+ time_end.tv_usec - time_value.tv_usec;
+
+					response[8191] = 0;
+
+					parse_session(response, "SET-COOKIE:");
+					if (old_session_int)
+						if (session_int) {
+							read_int |= (diff < 250000 ? 0 : 1)
+									<< (bit_number = (bit_number + 1) % 8);
+							if (!bit_number) {
+								putchar(read_int);
+								read_int = 0;
+							}
+						} else
+							break;
+					else if (!session_int)
+						break;
+				}
+			}
+	} else {
 		// read stdin
 		int input[8192];
 		int input_length = 0;
@@ -83,7 +136,6 @@ int main(int argc, char **argv) {
 				break;
 			input[input_length] = input_int;
 		}
-//		printf("-1: input_length=%d\n", input_length);
 
 		long sessions[1000]; // bits sent
 		for (int i = 0; i < 1000; i++)
@@ -100,7 +152,6 @@ int main(int argc, char **argv) {
 		// binding
 		bind(socket_main = socket(AF_INET, SOCK_STREAM, 0), &socket_struct,
 				sizeof socket_struct); // 0 works for protocol
-//		printf("0: socket_main=%d\n", socket_main);
 
 		// listen 10 connections
 		listen(socket_main, 10);
@@ -113,25 +164,19 @@ int main(int argc, char **argv) {
 			sockets_ready = sockets_available; // copy available to read from
 			int selected_num = select(socket_max + 1, &sockets_ready, 0, 0,
 					&time_value);  // 5 seconds timeout
-//			printf("0.3: selected_num=%d\n", selected_num);
 			if (selected_num < 0)
 				goto the_end;
 
 			for (socket_num = 0; socket_num <= socket_max; socket_num++)
 				if (FD_ISSET(socket_num, &sockets_available)) {
-//					printf("0.4: socket_num=%d\n", socket_num);
 					if (FD_ISSET(socket_num, &sockets_ready))
 						if (socket_num == socket_main) { // server - accepting new connection
 							int socket_client = accept(socket_main, 0, 0); // not reporting anything back 0-s are ok
 							FD_SET(socket_client, &sockets_available);
 							if (socket_client > socket_max)
 								socket_max = socket_client;
-//							printf("0.5: socket_client=%d, socket_max=%d\n",
-//									socket_client, socket_max);
 							break;
 						} else {
-//							printf("0.6: socket_num=%d\n", socket_num);
-
 							int read_bytes = read(socket_num, request, 8192);
 							if (read_bytes <= 0)
 								close_socket();
@@ -171,10 +216,6 @@ int main(int argc, char **argv) {
 												break;
 											}
 
-//									printf(
-//											"1: session_int=%d, wait_length=%d\n",
-//											session_int, wait_length);
-
 									if (wait_length) {
 										time_value.tv_sec = 0;
 										time_value.tv_usec = 250000;
@@ -189,8 +230,6 @@ int main(int argc, char **argv) {
 													"HTTP/1.0 200 OK\r\nContent-type: text/html\r\nSet-Cookie: session=%d\r\nContent-Length: %ld\r\n\r\n%s",
 													session_int, strlen(html),
 													html);
-//									printf("2: response={%s}, html={%s}\n",
-//											response, html);
 									write(socket_num, response,
 											response_length);
 								}
@@ -200,79 +239,6 @@ int main(int argc, char **argv) {
 						close_socket();
 				}
 		}
-	} else { // client
-//		printf("4: argv[1]={%s}\n", argv[1]);
-
-		char address[8192];
-		int address_length_1;
-		sscanf(argv[1], "http://%8191[^/]%n", address, &address_length_1);
-
-		snprintf(request, 8192, "GET %s HTTP/1.0\r\nHost: %s\r\n",
-				*(argv[1] + address_length_1) ?
-						argv[1] + address_length_1 : "/", address);
-//		printf("4.5: request={%s}\n", request);
-
-//		printf("5: argv[1]={%s}, address={%s}, address_length_1=%d\n", argv[1],
-//				address, address_length_1);
-
-		int address_length;
-		int port = 80;
-		sscanf(address, "%*[^:]%n:%d", &address_length, &port);
-		address[address_length] = 0;
-//		printf("6: address={%s}, address_length=%d, port=%d\n", address,
-//				address_length, port);
-
-		struct hostent *host = gethostbyname(address);
-		memcpy(&socket_struct.sin_addr.s_addr, host->h_addr, host->h_length);
-		socket_struct.sin_port = htons(port);
-
-		int status = connect(socket_main = socket(AF_INET, SOCK_STREAM, 0),
-				&socket_struct, sizeof socket_struct);
-//		printf("6: status=%d\n", status);
-		if (!status)
-			for (int read_int = 0;;) {
-				int old_session_int = session_int;
-//				printf("6: old_session_int=%d\n", old_session_int);
-
-				char content[8192];
-				int content_length = snprintf(content, 8192,
-						"%sCookie: session=%s\r\n\r\n", request,
-						session_int ? session_string : "");
-				write(socket_main, content, content_length);
-
-				gettimeofday(&time_value, 0);
-
-				read(socket_main, response, 8192);
-				if (*response == 'H') {
-					struct timeval time_end;
-					gettimeofday(&time_end, 0);
-
-					long diff = (time_end.tv_sec - time_value.tv_sec) * 1000000
-							+ time_end.tv_usec - time_value.tv_usec;
-
-					response[8191] = 0;
-//					printf("6: response={%s}, diff=%ld\n", response, diff);
-
-					parse_session(response, "SET-COOKIE:");
-//					printf("6.5: old_session_int=%d, session_int=%d\n",
-//							old_session_int, session_int);
-					if (old_session_int)
-						if (session_int) {
-							read_int |= (diff < 250000 ? 0 : 1)
-									<< (bit_number = (bit_number + 1) % 8);
-//							printf("7: read_int=%d, bit_number=%d\n", read_int,
-//									bit_number);
-							if (!bit_number) {
-//								printf("8: read_int=%d\n", read_int);
-								putchar(read_int);
-								read_int = 0;
-							}
-						} else
-							break;
-					else if (!session_int)
-						break;
-				}
-			}
 	};
 
 	the_end: close(socket_main);
