@@ -118,6 +118,7 @@ int main(int argc, char **argv) {
 									<< (bit_number = (bit_number + 1) % 8);
 							if (!bit_number) {
 								putchar(read_int);
+								fflush(stdout);
 								read_int = 0;
 							}
 						} else
