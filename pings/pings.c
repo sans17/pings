@@ -56,8 +56,6 @@ void parse_session(char* communication, char* substring_cookie) {
 		session_int = atoi(session_string);
 }
 
-int bit_number = 0;
-
 int main(int argc, char **argv) {
 	int ret = 0;
 
@@ -89,7 +87,7 @@ int main(int argc, char **argv) {
 
 		if (!connect(socket_main = socket(AF_INET, SOCK_STREAM, 0),
 				&socket_struct, sizeof socket_struct))
-			for (int read_int = 0;;) {
+			for (int read_int = 0, bit_number = 0;;) {
 				int old_session_int = session_int;
 				//				printf("6: old_session_int=%d\n", old_session_int);
 
@@ -109,17 +107,34 @@ int main(int argc, char **argv) {
 					long diff = (time_end.tv_sec - time_value.tv_sec) * 1000000
 							+ time_end.tv_usec - time_value.tv_usec;
 
+					printf("diff=%ld, bit_number=%d, read_int=%d\n", diff,
+							bit_number, read_int);
+
 					response[8191] = 0;
 
 					parse_session(response, "SET-COOKIE:");
 					if (old_session_int)
 						if (session_int) {
-							read_int |= (diff < 250000 ? 0 : 1)
-									<< (bit_number = (bit_number + 1) % 8);
-							if (!bit_number) {
+							if (diff < 250000) {
+								bit_number++;
+								if (bit_number == 16)
+									read_int |= 15;
+								else if (bit_number == 32)
+									read_int |= 240;
+							} else {
+								read_int += (
+										bit_number < 16 ?
+												bit_number : bit_number << 4);
+								bit_number = 16;
+							}
+							printf("bit_number=%d, read_int=%d\n", bit_number,
+									read_int);
+
+							if (bit_number == 32) {
 								putchar(read_int);
 								fflush(stdout);
 								read_int = 0;
+								bit_number = 0;
 							}
 						} else
 							break;
@@ -138,9 +153,9 @@ int main(int argc, char **argv) {
 			input[input_length] = input_int;
 		}
 
-		long sessions[1000]; // bits sent
+		long sessions[1000][2]; // info sent
 		for (int i = 0; i < 1000; i++)
-			sessions[i] = -1;
+			sessions[i][0] = sessions[i][1] = -1;
 
 		fd_set sockets_ready; // sockets ready to read
 		FD_ZERO(&sockets_ready);
@@ -189,31 +204,56 @@ int main(int argc, char **argv) {
 									parse_session(request, "COOKIE:");
 
 									if (session_int) {
-										long char_number = sessions[session_int
-												- 1] / 8;
-
-										if (char_number >= input_length) {
-											sessions[session_int - 1] = 0;
+										if (sessions[session_int][0]
+												>= input_length) {
+											sessions[session_int][0] =
+													sessions[session_int][1] =
+															-1;
 											session_int = 0;
 										} else {
-											sessions[session_int - 1]++;
-											wait_length =
-													input[char_number]
-															& 1
-																	<< (bit_number =
-																			sessions[session_int
-																					- 1]
-																					% 8);
+//											printf(
+//													"0: input[sessions[session_int][0]]=%d, sessions[session_int][1]=%d\n",
+//													input[sessions[session_int][0]],
+//													sessions[session_int][1]);
+											if (wait_length =
+													(sessions[session_int][1]
+															< 15 ?
+															sessions[session_int][1] :
+															sessions[session_int][1]
+																	>> 4)
+															>= (sessions[session_int][1]
+																	< 15 ?
+																	input[sessions[session_int][0]]
+																			& 15 :
+																	input[sessions[session_int][0]]
+																			>> 4))
+												sessions[session_int][1] =
+														sessions[session_int][1]
+																< 15 ? 15 : 255;
+											else
+												sessions[session_int][1] +=
+														sessions[session_int][1]
+																< 16 ? 1 : 16;
+//											printf(
+//													"1: sessions[session_int][1]=%d, wait_length=%d\n",
+//													sessions[session_int][1],
+//													wait_length);
+											if (sessions[session_int][1]
+													== 255) {
+												sessions[session_int][0]++;
+												sessions[session_int][1] = 0;
+											}
 										}
 									} else
-										for (int new_session_int = 0;
+										for (int new_session_int = 1;
 												new_session_int < 1000;
 												new_session_int++)
-											if (sessions[new_session_int]
+											if (sessions[new_session_int][0]
 													== -1) {
-												sessions[new_session_int] = 0;
-												session_int = new_session_int
-														+ 1;
+												sessions[new_session_int][0] =
+														sessions[new_session_int][1] =
+																0;
+												session_int = new_session_int;
 												break;
 											}
 
