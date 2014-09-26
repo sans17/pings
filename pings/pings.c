@@ -1,13 +1,5 @@
-#include <ctype.h>
 #include <netdb.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/select.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <sys/types.h>
-#include <sys/unistd.h>
 
 int socket_num;
 int socket_max;
@@ -55,6 +47,8 @@ void parse_session(char* communication, char* substring_cookie) {
 	if (strlen(session_string))
 		session_int = atoi(session_string);
 }
+
+int pause_length = 170000;
 
 int main(int argc, char **argv) {
 	int ret = 0;
@@ -107,30 +101,19 @@ int main(int argc, char **argv) {
 					long diff = (time_end.tv_sec - time_value.tv_sec) * 1000000
 							+ time_end.tv_usec - time_value.tv_usec;
 
-					printf("diff=%ld, bit_number=%d, read_int=%d\n", diff,
-							bit_number, read_int);
-
 					response[8191] = 0;
 
 					parse_session(response, "SET-COOKIE:");
 					if (old_session_int)
 						if (session_int) {
-							if (diff < 250000) {
-								bit_number++;
-								if (bit_number == 16)
-									read_int |= 15;
-								else if (bit_number == 32)
-									read_int |= 240;
-							} else {
-								read_int += (
-										bit_number < 16 ?
-												bit_number : bit_number << 4);
-								bit_number = 16;
-							}
-							printf("bit_number=%d, read_int=%d\n", bit_number,
-									read_int);
+							if (diff < pause_length) {
+								int increment = bit_number < 15 ? 1 : 16;
+								bit_number += increment;
+								read_int += increment;
+							} else
+								bit_number = bit_number < 15 ? 15 : 255;
 
-							if (bit_number == 32) {
+							if (bit_number == 255) {
 								putchar(read_int);
 								fflush(stdout);
 								read_int = 0;
@@ -153,8 +136,8 @@ int main(int argc, char **argv) {
 			input[input_length] = input_int;
 		}
 
-		long sessions[1000][2]; // info sent
-		for (int i = 0; i < 1000; i++)
+		long sessions[8192][2]; // info sent
+		for (int i = 0; i < 8192; i++)
 			sessions[i][0] = sessions[i][1] = -1;
 
 		fd_set sockets_ready; // sockets ready to read
@@ -211,10 +194,6 @@ int main(int argc, char **argv) {
 															-1;
 											session_int = 0;
 										} else {
-//											printf(
-//													"0: input[sessions[session_int][0]]=%d, sessions[session_int][1]=%d\n",
-//													input[sessions[session_int][0]],
-//													sessions[session_int][1]);
 											if (wait_length =
 													(sessions[session_int][1]
 															< 15 ?
@@ -234,10 +213,6 @@ int main(int argc, char **argv) {
 												sessions[session_int][1] +=
 														sessions[session_int][1]
 																< 16 ? 1 : 16;
-//											printf(
-//													"1: sessions[session_int][1]=%d, wait_length=%d\n",
-//													sessions[session_int][1],
-//													wait_length);
 											if (sessions[session_int][1]
 													== 255) {
 												sessions[session_int][0]++;
@@ -246,7 +221,7 @@ int main(int argc, char **argv) {
 										}
 									} else
 										for (int new_session_int = 1;
-												new_session_int < 1000;
+												new_session_int < 8192;
 												new_session_int++)
 											if (sessions[new_session_int][0]
 													== -1) {
@@ -259,13 +234,13 @@ int main(int argc, char **argv) {
 
 									if (wait_length) {
 										time_value.tv_sec = 0;
-										time_value.tv_usec = 250000;
+										time_value.tv_usec = pause_length;
 
 										select(0, 0, 0, 0, &time_value);
 									}
 
 									char* html =
-											"<!DOCTYPE html>\n<html><body>A</body></html>";
+											"<!DOCTYPE html>\n<html><body><div style='position:absolute;top:45%;left:40%;'>Obscurity is an illusion.</div></body></html>";
 									long response_length =
 											snprintf(response, 8192,
 													"HTTP/1.0 200 OK\r\nContent-type: text/html\r\nSet-Cookie: session=%d\r\nContent-Length: %ld\r\n\r\n%s",
