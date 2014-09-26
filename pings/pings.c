@@ -1,19 +1,6 @@
 #include <netdb.h>
 #include <stdio.h>
 
-int socket_num;
-int socket_max;
-fd_set sockets_available;
-
-void close_socket() {
-	close(socket_num);
-	FD_CLR(socket_num, &sockets_available);
-	if (socket_num == socket_max)
-		while (--socket_max)
-			if (FD_ISSET(socket_max, &sockets_available))
-				break;
-}
-
 char session_string[8192];
 int session_int = 0;
 
@@ -48,18 +35,19 @@ void parse_session(char* communication, char* substring_cookie) {
 		session_int = atoi(session_string);
 }
 
-int pause_length = 170000;
+int pause_length = 250000;
 
 int main(int argc, char **argv) {
-	int ret = 0;
-
 	struct sockaddr_in socket_struct;
 	socket_struct.sin_family = AF_INET;
 	int socket_main;
 
 	char request[8192]; // read buffer
 	char response[8192];
+
 	struct timeval time_value;
+	time_value.tv_sec = 0;
+	time_value.tv_usec = pause_length;
 
 	if (argc > 1) { // client
 		char address[8192];
@@ -95,17 +83,17 @@ int main(int argc, char **argv) {
 				read(socket_main, response, 8192);
 				if (*response == 'H') {
 					struct timeval time_end;
-					gettimeofday(&time_end, 0);
 
-					long diff = (time_end.tv_sec - time_value.tv_sec) * 1000000
-							+ time_end.tv_usec - time_value.tv_usec;
+					gettimeofday(&time_end, 0);
 
 					response[8191] = 0;
 
 					parse_session(response, "SET-COOKIE:");
 					if (old_session_int)
 						if (session_int) {
-							if (diff < pause_length) {
+							if ((time_end.tv_sec - time_value.tv_sec) * 1000000
+									+ time_end.tv_usec - time_value.tv_usec
+									< pause_length) {
 								int increment = bit_number < 15 ? 1 : 16;
 								bit_number += increment;
 								read_int += increment;
@@ -139,6 +127,7 @@ int main(int argc, char **argv) {
 		for (int i = 0; i < 8192; i++)
 			sessions[i][0] = sessions[i][1] = -1;
 
+		fd_set sockets_available;
 		fd_set sockets_ready; // sockets ready to read
 		FD_ZERO(&sockets_ready);
 		FD_ZERO(&sockets_available);
@@ -154,108 +143,102 @@ int main(int argc, char **argv) {
 		// listen 10 connections
 		listen(socket_main, 10);
 
+		int socket_max;
 		FD_SET(socket_max = socket_main, &sockets_available);
 		for (;;) {
-			time_value.tv_sec = 5;
-			time_value.tv_usec = 0;
-
 			sockets_ready = sockets_available; // copy available to read from
-			int selected_num = select(socket_max + 1, &sockets_ready, 0, 0,
-					&time_value);  // 5 seconds timeout
-			if (selected_num < 0)
+			int selected_num = select(socket_max + 1, &sockets_ready, 0, 0, 0); // no timeout
+			if (selected_num <= 0)
 				goto the_end;
 
-			for (socket_num = 0; socket_num <= socket_max; socket_num++)
-				if (FD_ISSET(socket_num, &sockets_available)) {
-					if (FD_ISSET(socket_num, &sockets_ready))
-						if (socket_num == socket_main) { // server - accepting new connection
-							int socket_client = accept(socket_main, 0, 0); // not reporting anything back 0-s are ok
-							FD_SET(socket_client, &sockets_available);
-							if (socket_client > socket_max)
-								socket_max = socket_client;
-							break;
-						} else {
-							int read_bytes = read(socket_num, request, 8192);
-							if (read_bytes <= 0)
-								close_socket();
-							else {
-								request[8191] = 0;
-								if (*request == 'G') {
-									int wait_length = 0;
+			for (int socket_num = 0; selected_num && socket_num <= socket_max;
+					socket_num++)
+				if (FD_ISSET(socket_num, &sockets_ready)) {
+					selected_num--;
 
-									parse_session(request, "COOKIE:");
+					if (socket_num == socket_main) { // server - accepting new connection
+						int socket_client = accept(socket_main, 0, 0); // not reporting anything back 0-s are ok
+						FD_SET(socket_client, &sockets_available);
+						FD_CLR(socket_client, &sockets_ready);
+						if (socket_client > socket_max)
+							socket_max = socket_client;
+					} else if (read(socket_num, request, 8192) > 0) {
+						request[8191] = 0;
+						if (*request == 'G') {
+							int wait_flag = 0;
 
-									if (session_int) {
-										if (sessions[session_int][0]
-												>= input_length) {
-											sessions[session_int][0] =
-													sessions[session_int][1] =
-															-1;
-											session_int = 0;
-										} else {
-											if (wait_length =
-													(sessions[session_int][1]
+							parse_session(request, "COOKIE:");
+
+							if (session_int) {
+								if (sessions[session_int][0] >= input_length) {
+									sessions[session_int][0] =
+											sessions[session_int][1] = -1;
+									session_int = 0;
+								} else {
+									if (wait_flag =
+											(sessions[session_int][1] < 15 ?
+													sessions[session_int][1] :
+													sessions[session_int][1]
+															>> 4)
+													>= (sessions[session_int][1]
 															< 15 ?
-															sessions[session_int][1] :
-															sessions[session_int][1]
-																	>> 4)
-															>= (sessions[session_int][1]
-																	< 15 ?
-																	input[sessions[session_int][0]]
-																			& 15 :
-																	input[sessions[session_int][0]]
-																			>> 4))
-												sessions[session_int][1] =
-														sessions[session_int][1]
-																< 15 ? 15 : 255;
-											else
-												sessions[session_int][1] +=
-														sessions[session_int][1]
-																< 16 ? 1 : 16;
-											if (sessions[session_int][1]
-													== 255) {
-												sessions[session_int][0]++;
-												sessions[session_int][1] = 0;
-											}
-										}
-									} else
-										for (int new_session_int = 1;
-												new_session_int < 8192;
-												new_session_int++)
-											if (sessions[new_session_int][0]
-													== -1) {
-												sessions[new_session_int][0] =
-														sessions[new_session_int][1] =
-																0;
-												session_int = new_session_int;
-												break;
-											}
-
-									if (wait_length) {
-										time_value.tv_sec = 0;
-										time_value.tv_usec = pause_length;
-
-										select(0, 0, 0, 0, &time_value);
+															input[sessions[session_int][0]]
+																	& 15 :
+															input[sessions[session_int][0]]
+																	>> 4))
+										sessions[session_int][1] =
+												sessions[session_int][1] < 15 ?
+														15 : 255;
+									else
+										sessions[session_int][1] +=
+												sessions[session_int][1] < 16 ?
+														1 : 16;
+									if (sessions[session_int][1] == 255) {
+										sessions[session_int][0]++;
+										sessions[session_int][1] = 0;
+									}
+								}
+							} else
+								for (int new_session_int = 1;
+										new_session_int < 8192;
+										new_session_int++)
+									if (sessions[new_session_int][0] == -1) {
+										sessions[new_session_int][0] =
+												sessions[new_session_int][1] =
+														0;
+										session_int = new_session_int;
+										break;
 									}
 
-									char* html =
-											"<!DOCTYPE html>\n<html><body><div style='position:absolute;top:45%;left:40%;'>Obscurity is an illusion.</div></body></html>";
-									long response_length =
-											snprintf(response, 8192,
-													"HTTP/1.0 200 OK\r\nContent-type: text/html\r\nSet-Cookie: session=%d\r\nContent-Length: %ld\r\n\r\n%s",
-													session_int, strlen(html),
-													html);
-									write(socket_num, response,
-											response_length);
-								}
-							}
+							char* html =
+									"<div style='position:absolute;top:45%;left:40%;'>Obscurity is an illusion.</div>";
+							long response_length =
+									snprintf(response, 8192,
+											"HTTP/1.0 200 OK\r\nContent-type: text/html\r\nSet-Cookie: session=%d\r\nContent-Length: %ld\r\n\r\n%s",
+											session_int, strlen(html), html);
+
+							int parent_flag = 1;
+							if (wait_flag && !(parent_flag = fork()))
+								select(0, 0, 0, 0, &time_value);
+
+							if (wait_flag ? !parent_flag : parent_flag)
+								write(socket_num, response, response_length);
+
+							if (!parent_flag)
+								return 0;
 						}
-					else if (socket_num != socket_main)
-						close_socket();
+					} else {
+						close(socket_num);
+						FD_CLR(socket_num, &sockets_available);
+						if (socket_num == socket_max)
+							while (--socket_max)
+								if (FD_ISSET(socket_max, &sockets_available))
+									break;
+					}
 				}
 		}
 	};
 
 	the_end: close(socket_main);
-	return ret;
+	return 0;
 }
