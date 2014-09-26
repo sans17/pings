@@ -83,7 +83,6 @@ int main(int argc, char **argv) {
 				&socket_struct, sizeof socket_struct))
 			for (int read_int = 0, bit_number = 0;;) {
 				int old_session_int = session_int;
-				//				printf("6: old_session_int=%d\n", old_session_int);
 
 				char content[8192];
 				int content_length = snprintf(content, 8192,
