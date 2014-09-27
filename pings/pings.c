@@ -1,12 +1,23 @@
 #include <netdb.h>
 #include <stdio.h>
 
+fd_set fd_available;
+int fd_max;
+
+void close_fd(int fd_num) {
+	close(fd_num);
+	FD_CLR(fd_num, &fd_available);
+	if (fd_num >= fd_max)
+		while (--fd_max)
+			if (FD_ISSET(fd_max, &fd_available))
+				break;
+}
+
 char session_string[8192];
-int session_int = 0;
+char old_session_string[8192];
 
 void parse_session(char* communication, char* substring_cookie) {
 	session_string[0] = 0;
-	session_int = 0;
 
 	for (char *read_pointer = communication, *request_string = communication;
 			*read_pointer; read_pointer++) {
@@ -30,14 +41,13 @@ void parse_session(char* communication, char* substring_cookie) {
 		} else
 			*read_pointer = toupper(*read_pointer);
 	}
-
-	if (strlen(session_string))
-		session_int = atoi(session_string);
 }
 
 int pause_length = 250000;
 
 int main(int argc, char **argv) {
+	session_string[0] = 0;
+
 	struct sockaddr_in socket_struct;
 	socket_struct.sin_family = AF_INET;
 	int socket_main;
@@ -70,12 +80,12 @@ int main(int argc, char **argv) {
 		if (!connect(socket_main = socket(AF_INET, SOCK_STREAM, 0),
 				&socket_struct, sizeof socket_struct))
 			for (int read_int = 0, bit_number = 0;;) {
-				int old_session_int = session_int;
+				strcpy(old_session_string, session_string);
 
 				char content[8192];
 				int content_length = snprintf(content, 8192,
 						"%sCookie: session=%s\r\n\r\n", request,
-						session_int ? session_string : "");
+						session_string);
 				write(socket_main, content, content_length);
 
 				gettimeofday(&time_value, 0);
@@ -89,26 +99,26 @@ int main(int argc, char **argv) {
 					response[8191] = 0;
 
 					parse_session(response, "SET-COOKIE:");
-					if (old_session_int)
-						if (session_int) {
-							if ((time_end.tv_sec - time_value.tv_sec) * 1000000
-									+ time_end.tv_usec - time_value.tv_usec
-									< pause_length) {
-								int increment = bit_number < 15 ? 1 : 16;
-								bit_number += increment;
-								read_int += increment;
-							} else
-								bit_number = bit_number < 15 ? 15 : 255;
-
-							if (bit_number == 255) {
-								putchar(read_int);
-								fflush(stdout);
-								read_int = 0;
-								bit_number = 0;
-							}
+					if (old_session_string[0]
+							&& !strncmp(old_session_string, session_string,
+									strlen(old_session_string))) {
+						int increment = 0;
+						if ((time_end.tv_sec - time_value.tv_sec) * 1000000
+								+ time_end.tv_usec - time_value.tv_usec
+								< pause_length) {
+							increment = bit_number < 15 ? 1 : 16;
+							bit_number += increment;
+							read_int += increment;
 						} else
-							break;
-					else if (!session_int)
+							bit_number = bit_number < 15 ? 15 : 255;
+
+						if (bit_number == 255) {
+							putchar(read_int);
+							fflush(stdout);
+							read_int = 0;
+							bit_number = 0;
+						}
+					} else if (!session_string[0])
 						break;
 				}
 			}
@@ -123,14 +133,25 @@ int main(int argc, char **argv) {
 			input[input_length] = input_int;
 		}
 
-		long sessions[8192][2]; // info sent
-		for (int i = 0; i < 8192; i++)
-			sessions[i][0] = sessions[i][1] = -1;
+		int session_info[8192][2]; // info sent
+		int pipes[8192][2];
+		for (int i = 0; i < 8192; i++) {
+			session_info[i][0] = session_info[i][1] = -1;
+			pipes[i][0] = pipes[i][1] = 0;
+		}
 
-		fd_set sockets_available;
-		fd_set sockets_ready; // sockets ready to read
-		FD_ZERO(&sockets_ready);
-		FD_ZERO(&sockets_available);
+		gettimeofday(&time_value, 0);
+		char secs_string[8192];
+		int secs_string_length = sprintf(secs_string, "%ld", time_value.tv_sec);
+
+		time_value.tv_sec = 0;
+		time_value.tv_usec = pause_length;
+
+		fd_set fd_ready; // sockets ready to read
+		fd_set fd_sockets;
+		FD_ZERO(&fd_ready);
+		FD_ZERO(&fd_available);
+		FD_ZERO(&fd_sockets);
 
 		// socket structure
 		socket_struct.sin_addr.s_addr = INADDR_ANY; // INADDR_ANY is 0 anyway
@@ -143,97 +164,166 @@ int main(int argc, char **argv) {
 		// listen 10 connections
 		listen(socket_main, 10);
 
-		int socket_max;
-		FD_SET(socket_max = socket_main, &sockets_available);
-		for (;;) {
-			sockets_ready = sockets_available; // copy available to read from
-			int selected_num = select(socket_max + 1, &sockets_ready, 0, 0, 0); // no timeout
-			if (selected_num <= 0)
-				goto the_end;
+		FD_SET(fd_max = socket_main, &fd_available);
+		for (int parent_flag = 1, socket_client = 0;;) {
+			fd_ready = fd_available; // copy available to read from
+			int selected_num = select(fd_max + 1, &fd_ready, 0, 0, 0); // no timeout
 
-			for (int socket_num = 0; selected_num && socket_num <= socket_max;
-					socket_num++)
-				if (FD_ISSET(socket_num, &sockets_ready)) {
+			if (selected_num <= 0) {
+				if (!parent_flag && socket_client)
+					close_fd(socket_client);
+				goto the_end;
+			}
+
+			for (int fd_num = socket_client; selected_num && fd_num <= fd_max;
+					fd_num++)
+				if (FD_ISSET(fd_num, &fd_ready)) {
 					selected_num--;
 
-					if (socket_num == socket_main) { // server - accepting new connection
-						int socket_client = accept(socket_main, 0, 0); // not reporting anything back 0-s are ok
-						FD_SET(socket_client, &sockets_available);
-						FD_CLR(socket_client, &sockets_ready);
-						if (socket_client > socket_max)
-							socket_max = socket_client;
-					} else if (read(socket_num, request, 8192) > 0) {
-						request[8191] = 0;
-						if (*request == 'G') {
-							int wait_flag = 0;
+					if (fd_num == socket_main) { // server - accepting new connection
+						socket_client = accept(socket_main, 0, 0); // not reporting anything back 0-s are ok
+						FD_SET(socket_client, &fd_available);
+						FD_CLR(socket_client, &fd_ready);
+						FD_SET(socket_client, &fd_sockets);
+						if (socket_client > fd_max)
+							fd_max = socket_client;
 
-							parse_session(request, "COOKIE:");
+						socket_client = 0;
+					} else if (!parent_flag || FD_ISSET(fd_num, &fd_sockets)) {
+						int read_count = read(fd_num, request, 8192);
 
-							if (session_int) {
-								if (sessions[session_int][0] >= input_length) {
-									sessions[session_int][0] =
-											sessions[session_int][1] = -1;
-									session_int = 0;
-								} else {
-									if (wait_flag =
-											(sessions[session_int][1] < 15 ?
-													sessions[session_int][1] :
-													sessions[session_int][1]
-															>> 4)
-													>= (sessions[session_int][1]
-															< 15 ?
-															input[sessions[session_int][0]]
-																	& 15 :
-															input[sessions[session_int][0]]
-																	>> 4))
-										sessions[session_int][1] =
-												sessions[session_int][1] < 15 ?
-														15 : 255;
-									else
-										sessions[session_int][1] +=
-												sessions[session_int][1] < 16 ?
-														1 : 16;
-									if (sessions[session_int][1] == 255) {
-										sessions[session_int][0]++;
-										sessions[session_int][1] = 0;
+						int session_int = 0;
+						if (read_count > 0) {
+							request[8191] = 0;
+							if (*request == 'G') {
+								int wait_flag = 0;
+
+								strcpy(old_session_string, session_string);
+
+								parse_session(request, "COOKIE:");
+
+								if (!strncmp(session_string, secs_string,
+										strlen(secs_string))
+										&& !strncmp(old_session_string,
+												session_string,
+												strlen(old_session_string))) {
+									session_int = atoi(
+											session_string
+													+ secs_string_length);
+								}
+
+								if (session_int)
+									if (session_info[session_int][0]
+											< input_length) {
+										if (wait_flag =
+												(session_info[session_int][1]
+														< 15 ?
+														session_info[session_int][1] :
+														session_info[session_int][1]
+																>> 4)
+														>= (session_info[session_int][1]
+																< 15 ?
+																input[session_info[session_int][0]]
+																		& 15 :
+																input[session_info[session_int][0]]
+																		>> 4))
+											session_info[session_int][1] =
+													session_info[session_int][1]
+															< 15 ? 15 : 255;
+										else
+											session_info[session_int][1] +=
+													session_info[session_int][1]
+															< 16 ? 1 : 16;
+										if (session_info[session_int][1]
+												== 255) {
+											session_info[session_int][0]++;
+											session_info[session_int][1] = 0;
+										}
+									} else { // everything written
+										write(pipes[session_int][1],
+												session_info[session_int], 2); // child process write what has been done
+										close(fd_num);
+									}
+								else
+									for (int new_session_int = 1;
+											new_session_int < 8192;
+											new_session_int++)
+										if (session_info[new_session_int][0]
+												== -1) {
+											session_info[new_session_int][0] =
+													session_info[new_session_int][1] =
+															0;
+											session_int = new_session_int;
+											break;
+										}
+
+								char* html =
+										"<div style='position:absolute;top:45%;left:40%;'>Obscurity is an illusion.</div>";
+								sprintf(session_string, "%s%d", secs_string,
+										session_int);
+								long response_length =
+										snprintf(response, 8192,
+												"HTTP/1.0 200 OK\r\nContent-type: text/html\r\nExpires: Sat, 20 Sep 2014 12:00:00 GMT\r\nSet-Cookie: session=%s\r\nContent-Length: %ld\r\n\r\n%s",
+												session_string, strlen(html),
+												html);
+
+								if (parent_flag) {
+									pipe(pipes[session_int]);
+									if (!(parent_flag = fork())) // child process
+									{
+										close(pipes[session_int][0]);
+
+										FD_ZERO(&fd_available);
+										FD_SET(socket_client = fd_max = fd_num,
+												&fd_available);
 									}
 								}
-							} else
-								for (int new_session_int = 1;
-										new_session_int < 8192;
-										new_session_int++)
-									if (sessions[new_session_int][0] == -1) {
-										sessions[new_session_int][0] =
-												sessions[new_session_int][1] =
-														0;
-										session_int = new_session_int;
-										break;
-									}
 
-							char* html =
-									"<div style='position:absolute;top:45%;left:40%;'>Obscurity is an illusion.</div>";
-							long response_length =
-									snprintf(response, 8192,
-											"HTTP/1.0 200 OK\r\nContent-type: text/html\r\nSet-Cookie: session=%d\r\nContent-Length: %ld\r\n\r\n%s",
-											session_int, strlen(html), html);
+								if (parent_flag < 0)
+									goto the_end;
+								if (parent_flag) { // parent process
+									close(pipes[session_int][1]);
+									FD_SET(pipes[session_int][0],
+											&fd_available);
+									if (pipes[session_int][0] > fd_max)
+										fd_max = pipes[session_int][0];
 
-							int parent_flag = 1;
-							if (wait_flag && !(parent_flag = fork()))
-								select(0, 0, 0, 0, &time_value);
-
-							if (wait_flag ? !parent_flag : parent_flag)
-								write(socket_num, response, response_length);
-
-							if (!parent_flag)
-								return 0;
-						}
-					} else {
-						close(socket_num);
-						FD_CLR(socket_num, &sockets_available);
-						if (socket_num == socket_max)
-							while (--socket_max)
-								if (FD_ISSET(socket_max, &sockets_available))
+									close_fd(fd_num);
 									break;
+								} else { // child process
+									if (wait_flag)
+										select(0, 0, 0, 0, &time_value);
+
+									write(fd_num, response, response_length);
+								}
+							}
+						} else if (parent_flag) {
+							close(fd_num);
+							FD_CLR(fd_num, &fd_sockets);
+
+							close_fd(fd_num);
+						} else {
+							write(pipes[session_int][1],
+									session_info[session_int], 2); // child process write what has been done
+							close(fd_num);
+						}
+					} else { // not socket
+						for (int session_int = 0; session_int <= fd_max;
+								session_int++)
+							if (pipes[session_int][0] == fd_num) {
+								read(fd_num, session_info[session_int], 2);
+
+								close_fd(fd_num);
+
+								if (session_info[session_int][0]
+										>= input_length) {
+									session_info[session_int][0] =
+											session_info[session_int][1] = -1;
+									pipes[session_int][0] =
+											pipes[session_int][1] = 0;
+								}
+								break;
+							}
 					}
 				}
 		}
