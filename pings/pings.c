@@ -77,51 +77,56 @@ int main(int argc, char **argv) {
 		memcpy(&socket_struct.sin_addr.s_addr, host->h_addr, host->h_length);
 		socket_struct.sin_port = htons(port);
 
-		if (!connect(socket_main = socket(AF_INET, SOCK_STREAM, 0),
-				&socket_struct, sizeof socket_struct))
-			for (int read_int = 0, bit_number = 0;;) {
-				strcpy(old_session_string, session_string);
+		for (int read_int = 0, bit_number = 0;; close(socket_main))
+			if (!connect(socket_main = socket(AF_INET, SOCK_STREAM, 0),
+					&socket_struct, sizeof socket_struct))
+				for (;;) {
+					strcpy(old_session_string, session_string);
 
-				char content[8192];
-				int content_length = snprintf(content, 8192,
-						"%sCookie: session=%s\r\n\r\n", request,
-						session_string);
-				write(socket_main, content, content_length);
-
-				gettimeofday(&time_value, 0);
-
-				read(socket_main, response, 8192);
-				if (*response == 'H') {
-					struct timeval time_end;
-
-					gettimeofday(&time_end, 0);
-
-					response[8191] = 0;
-
-					parse_session(response, "SET-COOKIE:");
-					if (old_session_string[0]
-							&& !strncmp(old_session_string, session_string,
-									strlen(old_session_string))) {
-						int increment = 0;
-						if ((time_end.tv_sec - time_value.tv_sec) * 1000000
-								+ time_end.tv_usec - time_value.tv_usec
-								< pause_length) {
-							increment = bit_number < 15 ? 1 : 16;
-							bit_number += increment;
-							read_int += increment;
-						} else
-							bit_number = bit_number < 15 ? 15 : 255;
-
-						if (bit_number == 255) {
-							putchar(read_int);
-							fflush(stdout);
-							read_int = 0;
-							bit_number = 0;
-						}
-					} else if (!session_string[0])
+					char content[8192];
+					int content_length = snprintf(content, 8192,
+							"%sCookie: session=%s\r\n\r\n", request,
+							session_string);
+					if (write(socket_main, content, content_length) < 0)
 						break;
+
+					gettimeofday(&time_value, 0);
+
+					int read_length = read(socket_main, response, 8192);
+					if (read_length < 0)
+						break;
+					else if (read_length && *response == 'H') {
+						struct timeval time_end;
+
+						gettimeofday(&time_end, 0);
+
+						response[8191] = 0;
+
+						parse_session(response, "SET-COOKIE:");
+
+						if (old_session_string[0])
+							if (!strncmp(old_session_string, session_string,
+									strlen(old_session_string))) {
+								int increment = 0;
+								if ((time_end.tv_sec - time_value.tv_sec)
+										* 1000000 + time_end.tv_usec
+										- time_value.tv_usec < pause_length) {
+									increment = bit_number < 15 ? 1 : 16;
+									bit_number += increment;
+									read_int += increment;
+								} else
+									bit_number = bit_number < 15 ? 15 : 255;
+
+								if (bit_number == 255) {
+									putchar(read_int);
+									fflush(stdout);
+									read_int = 0;
+									bit_number = 0;
+								}
+							} else
+								goto the_end;
+					}
 				}
-			}
 	} else {
 		// read stdin
 		int input[8192];
