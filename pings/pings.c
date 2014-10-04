@@ -61,7 +61,7 @@ int main(int argc, char **argv) {
 	session_string[0] = 0;
 
 	struct sockaddr_in socket_struct;
-	socket_struct.sin_family = AF_INET;
+	socket_struct.sin_family = AF_INET; // AF_INET = 2
 	int socket_main;
 
 	char request[8192]; // read buffer
@@ -90,7 +90,7 @@ int main(int argc, char **argv) {
 
 		for (int read_int = 0, bit_number = 0;; close(socket_main))
 			if (!connect(socket_main = socket(AF_INET, SOCK_STREAM, 0),
-					&socket_struct, sizeof socket_struct))
+					&socket_struct, sizeof socket_struct)) // AF_INET=2, SOCK_STREAM=1, 0 works for protocol
 				for (;;) {
 					strcpy(old_session_string, session_string);
 
@@ -178,12 +178,12 @@ int main(int argc, char **argv) {
 		FD_ZERO(&fd_sockets);
 
 		// socket structure
-		socket_struct.sin_addr.s_addr = INADDR_ANY; // INADDR_ANY is 0 anyway
+		socket_struct.sin_addr.s_addr = INADDR_ANY; // INADDR_ANY=0
 		socket_struct.sin_port = htons(8008);
 
 		// binding
 		bind(socket_main = socket(AF_INET, SOCK_STREAM, 0), &socket_struct,
-				sizeof socket_struct); // 0 works for protocol
+				sizeof socket_struct); // AF_INET=2, SOCK_STREAM=1, 0 works for protocol
 
 		// listen 10 connections
 		listen(socket_main, 10);
