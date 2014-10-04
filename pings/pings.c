@@ -1,5 +1,15 @@
+#include <asm/byteorder.h>
+#include <ctype.h>
+#include <netinet/in.h>
 #include <netdb.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/select.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <sys/unistd.h>
 
 fd_set fd_available;
 int fd_max;
@@ -46,6 +56,7 @@ void parse_session(char* communication, char* substring_cookie) {
 int pause_length = 250000;
 
 int main(int argc, char **argv) {
+	int ret = 0;
 	session_string[0] = 0;
 
 	struct sockaddr_in socket_struct;
@@ -56,8 +67,6 @@ int main(int argc, char **argv) {
 	char response[8192];
 
 	struct timeval time_value;
-	time_value.tv_sec = 0;
-	time_value.tv_usec = pause_length;
 
 	if (argc > 1) { // client
 		char address[8192];
@@ -74,7 +83,8 @@ int main(int argc, char **argv) {
 		address[address_length] = 0;
 
 		struct hostent *host = gethostbyname(address);
-		memcpy(&socket_struct.sin_addr.s_addr, host->h_addr, host->h_length);
+		memcpy(&socket_struct.sin_addr.s_addr, host->h_addr_list[0],
+				host->h_length);
 		socket_struct.sin_port = htons(port);
 
 		for (int read_int = 0, bit_number = 0;; close(socket_main))
@@ -92,6 +102,7 @@ int main(int argc, char **argv) {
 
 					gettimeofday(&time_value, 0);
 
+					response[0] = 0;
 					int read_length = read(socket_main, response, 8192);
 					if (read_length < 0)
 						break;
@@ -107,6 +118,7 @@ int main(int argc, char **argv) {
 						if (old_session_string[0])
 							if (!strncmp(old_session_string, session_string,
 									strlen(old_session_string))) {
+
 								int increment = 0;
 								if ((time_end.tv_sec - time_value.tv_sec)
 										* 1000000 + time_end.tv_usec
@@ -123,8 +135,10 @@ int main(int argc, char **argv) {
 									read_int = 0;
 									bit_number = 0;
 								}
-							} else
+							} else {
+								ret = 1;
 								goto the_end;
+							}
 					}
 				}
 	} else {
@@ -239,6 +253,7 @@ int main(int argc, char **argv) {
 											session_info[session_int][1] +=
 													session_info[session_int][1]
 															< 16 ? 1 : 16;
+
 										if (session_info[session_int][1]
 												== 255) {
 											session_info[session_int][0]++;
@@ -268,7 +283,7 @@ int main(int argc, char **argv) {
 										session_int);
 								long response_length =
 										snprintf(response, 8192,
-												"HTTP/1.0 200 OK\r\nContent-type: text/html\r\nExpires: Sat, 20 Sep 2014 12:00:00 GMT\r\nSet-Cookie: session=%s\r\nContent-Length: %ld\r\n\r\n%s",
+												"HTTP/1.0 200 OK\r\nContent-type: text/html\r\nExpires: 0\r\nSet-Cookie: session=%s\r\nContent-Length: %ld\r\n\r\n%s",
 												session_string, strlen(html),
 												html);
 
@@ -284,8 +299,10 @@ int main(int argc, char **argv) {
 									}
 								}
 
-								if (parent_flag < 0)
+								if (parent_flag < 0) {
+									ret = 1;
 									goto the_end;
+								}
 								if (parent_flag) { // parent process
 									close(pipes[session_int][1]);
 									FD_SET(pipes[session_int][0],
@@ -296,8 +313,12 @@ int main(int argc, char **argv) {
 									close_fd(fd_num);
 									break;
 								} else { // child process
-									if (wait_flag)
+									if (wait_flag) {
+										time_value.tv_sec = 0;
+										time_value.tv_usec = pause_length;
+
 										select(0, 0, 0, 0, &time_value);
+									}
 
 									write(fd_num, response, response_length);
 								}
@@ -335,5 +356,5 @@ int main(int argc, char **argv) {
 	};
 
 	the_end: close(socket_main);
-	return 0;
+	return ret;
 }
