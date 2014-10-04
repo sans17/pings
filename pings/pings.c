@@ -54,6 +54,7 @@ void parse_session(char* communication, char* substring_cookie) {
 }
 
 int pause_length = 1000000;
+int pause_bumper = 10000;
 
 int main(int argc, char **argv) {
 	int ret = 0;
@@ -130,7 +131,7 @@ int main(int argc, char **argv) {
 
 								int increment = 0;
 								// some buffer
-								if (diff < pause_length - 1000) {
+								if (diff < pause_length - pause_bumper) {
 									increment = bit_number < 15 ? 1 : 16;
 									bit_number += increment;
 									read_int += increment;
