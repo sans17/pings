@@ -53,7 +53,7 @@ void parse_session(char* communication, char* substring_cookie) {
 	}
 }
 
-int pause_length = 1000000;
+int pause_length = 2000000;
 int pause_bumper = 10000;
 
 int main(int argc, char **argv) {
