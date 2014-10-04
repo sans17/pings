@@ -53,7 +53,7 @@ void parse_session(char* communication, char* substring_cookie) {
 	}
 }
 
-int pause_length = 250000;
+int pause_length = 500000;
 
 int main(int argc, char **argv) {
 	int ret = 0;
@@ -97,6 +97,7 @@ int main(int argc, char **argv) {
 					int content_length = snprintf(content, 8192,
 							"%sCookie: session=%s\r\n\r\n", request,
 							session_string);
+
 					if (write(socket_main, content, content_length) < 0)
 						break;
 
@@ -111,6 +112,10 @@ int main(int argc, char **argv) {
 
 						gettimeofday(&time_end, 0);
 
+						int diff = (time_end.tv_sec - time_value.tv_sec)
+								* 1000000 + time_end.tv_usec
+								- time_value.tv_usec;
+
 						response[8191] = 0;
 
 						parse_session(response, "SET-COOKIE:");
@@ -119,10 +124,13 @@ int main(int argc, char **argv) {
 							if (!strncmp(old_session_string, session_string,
 									strlen(old_session_string))) {
 
+								fprintf(stderr,
+										"diff=%d, bit_number=%d, read_int=%d\n",
+										diff, bit_number, read_int);
+
 								int increment = 0;
-								if ((time_end.tv_sec - time_value.tv_sec)
-										* 1000000 + time_end.tv_usec
-										- time_value.tv_usec < pause_length) {
+								// some buffer
+								if (diff < pause_length - 1000) {
 									increment = bit_number < 15 ? 1 : 16;
 									bit_number += increment;
 									read_int += increment;
@@ -130,6 +138,8 @@ int main(int argc, char **argv) {
 									bit_number = bit_number < 15 ? 15 : 255;
 
 								if (bit_number == 255) {
+									fprintf(stderr, "read_int=%d, (char)read_int=%c\n", read_int, (char)read_int);
+
 									putchar(read_int);
 									fflush(stdout);
 									read_int = 0;
@@ -139,6 +149,8 @@ int main(int argc, char **argv) {
 								ret = 1;
 								goto the_end;
 							}
+
+//						break;
 					}
 				}
 	} else {
@@ -211,6 +223,10 @@ int main(int argc, char **argv) {
 					} else if (!parent_flag || FD_ISSET(fd_num, &fd_sockets)) {
 						int read_count = read(fd_num, request, 8192);
 
+						fprintf(stderr,
+								"-1: parent_flag=%d, fd_num=%d, read_count=%d\n",
+								parent_flag, fd_num, read_count);
+
 						int session_int = 0;
 						if (read_count > 0) {
 							request[8191] = 0;
@@ -231,7 +247,13 @@ int main(int argc, char **argv) {
 													+ secs_string_length);
 								}
 
-								if (session_int)
+								if (session_int) {
+									fprintf(stderr,
+											"0: parent_flag=%d, session_int=%d, session_info[session_int][0]=%d, session_info[session_int][1]=%d\n",
+											parent_flag, session_int,
+											session_info[session_int][0],
+											session_info[session_int][1]);
+
 									if (session_info[session_int][0]
 											< input_length) {
 										if (wait_flag =
@@ -254,17 +276,32 @@ int main(int argc, char **argv) {
 													session_info[session_int][1]
 															< 16 ? 1 : 16;
 
+										fprintf(stderr,
+												"parent_flag=%d, session_int=%d, session_info[session_int][1]=%d, wait_flag=%d\n",
+												parent_flag, session_int,
+												session_info[session_int][1],
+												wait_flag);
+
 										if (session_info[session_int][1]
 												== 255) {
 											session_info[session_int][0]++;
 											session_info[session_int][1] = 0;
 										}
 									} else { // everything written
+										fprintf(stderr,
+												"0.5: parent_flag=%d, session_int=%d, session_info[session_int][0]=%d, session_info[session_int][1]=%d\n",
+												parent_flag, session_int,
+												session_info[session_int][0],
+												session_info[session_int][1]);
+
 										write(pipes[session_int][1],
-												session_info[session_int], 2); // child process write what has been done
-										close(fd_num);
+												session_info[session_int],
+												sizeof(session_info[session_int])); // child process write what has been done
+										close(pipes[session_int][1]);
+
+										session_int = 0;
 									}
-								else
+								} else
 									for (int new_session_int = 1;
 											new_session_int < 8192;
 											new_session_int++)
@@ -277,10 +314,20 @@ int main(int argc, char **argv) {
 											break;
 										}
 
+								fprintf(stderr,
+										"1: parent_flag=%d, session_int=%d, session_info[session_int][0]=%d, session_info[session_int][1]=%d, wait_flag=%d\n",
+										parent_flag, session_int,
+										session_info[session_int][0],
+										session_info[session_int][1],
+										wait_flag);
+
 								char* html =
 										"<div style='position:absolute;top:45%;left:40%;'>Obscurity is an illusion.</div>";
-								sprintf(session_string, "%s%d", secs_string,
-										session_int);
+								if (session_int)
+									sprintf(session_string, "%s%d", secs_string,
+											session_int);
+								else
+									session_string[0] = 0;
 								long response_length =
 										snprintf(response, 8192,
 												"HTTP/1.0 200 OK\r\nContent-type: text/html\r\nExpires: 0\r\nSet-Cookie: session=%s\r\nContent-Length: %ld\r\n\r\n%s",
@@ -300,6 +347,7 @@ int main(int argc, char **argv) {
 								}
 
 								if (parent_flag < 0) {
+									fprintf(stderr, "1.4\n");
 									ret = 1;
 									goto the_end;
 								}
@@ -321,6 +369,11 @@ int main(int argc, char **argv) {
 									}
 
 									write(fd_num, response, response_length);
+
+									if (!session_int) {
+										close(fd_num);
+										return 0;
+									}
 								}
 							}
 						} else if (parent_flag) {
@@ -330,14 +383,31 @@ int main(int argc, char **argv) {
 							close_fd(fd_num);
 						} else {
 							write(pipes[session_int][1],
-									session_info[session_int], 2); // child process write what has been done
+									session_info[session_int],
+									sizeof(session_info[session_int])); // child process write what has been done
+							close(pipes[session_int][1]);
 							close(fd_num);
+
+							return 0;
 						}
 					} else { // not socket
 						for (int session_int = 0; session_int <= fd_max;
 								session_int++)
 							if (pipes[session_int][0] == fd_num) {
-								read(fd_num, session_info[session_int], 2);
+								fprintf(stderr,
+										"1.5: parent_flag=%d, session_int=%d, session_info[session_int][0]=%d, session_info[session_int][1]=%d\n",
+										parent_flag, session_int,
+										session_info[session_int][0],
+										session_info[session_int][1]);
+
+								read(fd_num, session_info[session_int],
+										sizeof(session_info[session_int]));
+
+								fprintf(stderr,
+										"2: parent_flag=%d, session_int=%d, session_info[session_int][0]=%d, session_info[session_int][1]=%d\n",
+										parent_flag, session_int,
+										session_info[session_int][0],
+										session_info[session_int][1]);
 
 								close_fd(fd_num);
 
@@ -354,6 +424,8 @@ int main(int argc, char **argv) {
 				}
 		}
 	};
+
+	fprintf(stderr, "3:\n");
 
 	the_end: close(socket_main);
 	return ret;
