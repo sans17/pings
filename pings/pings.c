@@ -143,6 +143,7 @@ int main(int argc, char **argv) {
 								goto the_end;
 							}
 
+						// test of client breaking connection
 //						break;
 					}
 				}
