@@ -1,3 +1,5 @@
+/**??/
+/
 //#include <asm/byteorder.h>
 //#include <ctype.h>
 //#include <netinet/in.h>
@@ -53,8 +55,8 @@ void parse_session(char* communication, char* substring_cookie) {
 	}
 }
 
-int pause_length = 250000;
-int pause_bumper = 100;
+int pause_length = 500000;
+int pause_bumper = 1000;
 
 int main(int argc, char **argv) {
 	int ret = 0;
