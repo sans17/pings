@@ -6,13 +6,10 @@ fd_set fd_available;
 
 char session_string[8192];
 char old_session_string[8192];
+char *substring_session = "session=";
 
 void parse_session(char* communication) {
 	session_string[0] = 0;
-
-	for (char *read_pointer = communication; *read_pointer; read_pointer++)
-		*read_pointer = toupper(*read_pointer);
-	char *substring_session = "SESSION=";
 	char *substring_with;
 	if (substring_with = strstr(communication, substring_session))
 		sscanf(substring_with + strlen(substring_session), "%s[^;\r\n]",
@@ -59,7 +56,7 @@ int main(int argc, char **argv) {
 
 					char content[8192];
 					int content_length = snprintf(content, 8192,
-							"%sCookie: session=%s\r\n\r\n", request,
+							"%sCookie: %s%s\r\n\r\n", request, substring_session,
 							session_string);
 
 					if (write(socket_main, content, content_length) < 0)
@@ -115,18 +112,20 @@ int main(int argc, char **argv) {
 		// read stdin
 		int input[8192];
 		int input_length = 0;
-		for (; input_length < 8192; input_length++) {
+		while(input_length < 8192) {
 			int input_int = fgetc(stdin);
 			if (input_int == EOF)
 				break;
-			input[input_length] = input_int;
+			input[input_length++] = input_int;
 		}
 
 		int session_info[8192][2]; // info sent
 		int pipes[8192][2];
-		for (int i = 0; i < 8192; i++) {
+		int i = 0;
+		while(i < 8192) {
 			session_info[i][0] = session_info[i][1] = -1;
 			pipes[i][0] = pipes[i][1] = 0;
+			i++;
 		}
 
 		gettimeofday(&time_value, 0);
@@ -151,7 +150,8 @@ int main(int argc, char **argv) {
 		listen(socket_main, 10);
 
 		FD_SET(socket_main, &fd_available);
-		for (int parent_flag = 1, socket_client = 0;;) {
+		int parent_flag = 1, socket_client = 0;
+		while(1) {
 			fd_ready = fd_available; // copy available to read from
 
 			if (select(64, &fd_ready, 0, 0, 0) <= 0) { // no timeout
@@ -252,8 +252,8 @@ int main(int argc, char **argv) {
 											session_int);
 								long response_length =
 										snprintf(response, 8192,
-												"HTTP/1.0 200 OK\r\nContent-type: text/html\r\nExpires: 0\r\nSet-Cookie: session=%s\r\nContent-Length: %ld\r\n\r\n%s",
-												session_string, strlen(html),
+												"HTTP/1.0 200 OK\r\nContent-type: text/html\r\nExpires: 0\r\nSet-Cookie: %s%s\r\nContent-Length: %ld\r\n\r\n%s",
+												substring_session, session_string, strlen(html),
 												html);
 
 								if (parent_flag) {

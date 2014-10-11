@@ -65,14 +65,17 @@ int main(int S, char **P) {
 					}
 				}
 	} else {
-		for (Z = 0; Z < O; Z++) {
+		Z = 0;
+		while(Z < O) {
 			if ((Y = fgetc(stdin)) == -1)
 				break;
-			Z[x] = Y;
+			x[Z++] = Y;
 		}
-		for (Y = 0; Y < O; Y++) {
+		Y = 0;
+		while(Y < O) {
 			0[Y[o]] = 1[Y[o]] = -1;
 			0[Y[m]] = 1[Y[m]] = 0;
+			Y++;
 		}
 		gettimeofday(&V, 0);		
 		h = sprintf(c, "%ld", V.tv_sec);
@@ -84,7 +87,9 @@ int main(int S, char **P) {
 		bind j;
 		listen(S, 10);
 		FD_SET(S, &A);
-		for (Y = 1, g = 0;;) {
+		Y = 1;
+		g = 0;
+		while(1) {
 			t = A;
 			if (select(64, &t, 0, 0, 0) <= 0) {
 				if (!Y && g)
